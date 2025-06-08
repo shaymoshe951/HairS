@@ -62,6 +62,7 @@ class ColorPalette:
                 code = file.replace(".png", "")
                 if code in self.colors:
                     self.colors[code]["Image"] = Image.open(os.path.join(folder, file)).resize((self.resolution, self.resolution))
+                    self.colors[code]["path"] = os.path.join(folder, file)
                 else:
                     print(f"Warning: Color code {code} not found in color dictionary.")
 
@@ -70,6 +71,15 @@ class ColorPalette:
         color = self.get_color_by_code(code)
         if color and "Image" in color:
             return color["Image"]
+        else:
+            print(f"Warning: No image found for color code {code}.")
+            return None
+
+    def get_color_path(self, code):
+        """Returns the image for a given color code."""
+        color = self.get_color_by_code(code)
+        if color and "path" in color:
+            return color["path"]
         else:
             print(f"Warning: No image found for color code {code}.")
             return None

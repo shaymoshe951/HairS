@@ -4,6 +4,7 @@ from PIL import Image, ImageOps
 
 from auto1111_if import color_modification
 from color_pallete import ColorPalette
+from hair_utils import HairMaskGenerator
 from vers_image import VersImage
 
 
@@ -35,6 +36,9 @@ def load_images():
 
 # Define the total number of screens
 NUM_SCREENS = 3
+color_pallete = ColorPalette()
+color_pallete_categories = sorted(color_pallete.get_all_categories())
+hair_mask_generator = HairMaskGenerator()
 
 
 # --- 1. State Management ---
@@ -111,14 +115,13 @@ def apply_colors(state_selected_color_code, user_data, working_images):
     if state_selected_color_code == -1:
         print("No color selected, returning original image.")
     selected_color_name = color_pallete.get_color_by_code(state_selected_color_code)["Name"]
-    color_modification(VersImage.from_image(cur_image), hair_inpaint_mask_bw_image, selected_color_name)
+    hair_mask = hair_mask_generator.generate_hair_mask(cur_image)
+    colored_image = color_modification(VersImage.from_image(cur_image), VersImage.from_numpy(hair_mask), selected_color_name)
+    working_images.append(colored_image.image)
 
     return working_images
 
 # --- 3. Gradio UI Layout ---
-
-color_pallete = ColorPalette()
-color_pallete_categories = sorted(color_pallete.get_all_categories())
 
 
 with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") as demo:
@@ -161,29 +164,42 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
         for category in color_pallete_categories:
             with gr.Tab(category):
                 gr.Markdown(f"### {category}")
-                # options_input = gr.CheckboxGroup(
-                #     choices=color_pallete.get_colors_by_category(category),
-                #     label=f"Select colors for {category}",
-                #     value=[],
-                #     type="value"
-                # )
                 colors_in_category = color_pallete.get_colors_by_category(category)
                 with gr.Row():
+                    imgs = []
                     for img_index, color in enumerate(colors_in_category):
                         color_img = color_pallete.get_color_image(color)
-                        img = gr.Image(
-                            value=color_img,
-                            label=colors_in_category[color]["Name"],
-                            interactive=False,
-                            show_label=True,
-                            show_download_button=False,
-                            show_fullscreen_button=False
-                        )
-                        img.select(fn=lambda : color, inputs=None, outputs=state_selected_color_code)
+                        # img = gr.Image(
+                        #     value=color_img,
+                        #     label=colors_in_category[color]["Name"],
+                        #     interactive=False,
+                        #     show_label=True,
+                        #     show_download_button=False,
+                        #     show_fullscreen_button=False
+                        # )
+                        # button = gr.Button(
+                        #     value='',
+                        #     icon = color_pallete.get_color_path(color),
+                        #     variant="secondary",  # Default, unselected style
+                        #     elem_classes="image-button",  # Add a class for potential custom CSS
+                        #     size="md"
+                        # )
+                        # img.select(fn=lambda : color, inputs=None, outputs=state_selected_color_code)
+                        if color_img:
+                            imgs.append(color_img)
+                gr.Gallery(
+                    value=imgs,
+                    label="Gallery with Original Aspect Ratio",
+                    columns=3,
+                    object_fit="contain",  # This is the key parameter!
+                    height="auto"  # Let the height adjust automatically
+                )
+
+
                 # Add a button to apply the selected colors
                 apply_button = gr.Button("Apply Colors", variant="primary")
                 apply_button.click(
-                    fn=lambda x: apply_colors,  # Placeholder function, replace with actual processing logic
+                    fn=apply_colors,  # Placeholder function, replace with actual processing logic
                     inputs=[state_selected_color_code, user_data, working_images],
                     outputs=working_images
                 )
@@ -231,3 +247,4 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
 
 if __name__ == "__main__":
     demo.launch()
+
