@@ -101,7 +101,7 @@ def change_screen(screen_index, direction, user_data, working_images):
     # The order of returned values must match the order of the `outputs` list in the .click() event.
     return [screen_index, user_data, summary_text] + screen_updates + [prev_btn_update, next_btn_update] + [working_images]
 
-def apply_colors(state_selected_color_code, user_data, working_images):
+def apply_colors(user_data, working_images):
     """
     Apply the selected colors to the working images.
     This function is a placeholder and should be replaced with actual processing logic.
@@ -112,10 +112,14 @@ def apply_colors(state_selected_color_code, user_data, working_images):
         cur_image = user_data['images'][-1]  # Get the last selected image
     else:
         raise ValueError("No images selected in user_data.")
-    if state_selected_color_code == -1:
+    if 'selected_color_code' in user_data:
+        selected_color_code = user_data['selected_color_code']
+    else:
         print("No color selected, returning original image.")
-    selected_color_name = color_pallete.get_color_by_code(state_selected_color_code)["Name"]
+        return working_images
+    selected_color_name = color_pallete.get_color_by_code(selected_color_code)["Name"]
     hair_mask = hair_mask_generator.generate_hair_mask(cur_image)
+    print(f"Applying color: {selected_color_name} to the hair mask.")
     colored_image = color_modification(VersImage.from_image(cur_image), VersImage.from_numpy(hair_mask), selected_color_name)
     working_images.append(colored_image.image)
 
@@ -132,7 +136,6 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
     user_data = gr.State({})
 
     working_images = gr.State([])
-    state_selected_color_code = gr.State(-1)
 
     @gr.render(inputs=working_images)
     def render_working_images(images):
@@ -141,7 +144,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
             for ind, img in enumerate(images):
                 gr.Image(interactive=False, value=img, scale=0, show_label=False, show_download_button=False, show_fullscreen_button=False)
                 if ind < len(images) - 1: # One more image at least
-                    gr.Image(interactive=False, value=r"C:\Users\ShayMoshe\Downloads\right_arrow.png", scale=0, show_label=False, show_download_button=False, show_fullscreen_button=False)
+                    gr.Image(interactive=False, value=r"./resources/right_arrow.png", scale=0, show_label=False, show_download_button=False, show_fullscreen_button=False)
 
     def on_gallery_img_select(evt: gr.SelectData, user_data):
         img_url = evt.value['image']['path']
@@ -161,46 +164,40 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
     with gr.Column(visible=False) as screen2:
         gr.Markdown("## Color change")
         gr.Markdown("Select color or next to skip.")
+        color_code_list = {}
         for category in color_pallete_categories:
             with gr.Tab(category):
                 gr.Markdown(f"### {category}")
                 colors_in_category = color_pallete.get_colors_by_category(category)
-                with gr.Row():
-                    imgs = []
-                    for img_index, color in enumerate(colors_in_category):
-                        color_img = color_pallete.get_color_image(color)
-                        # img = gr.Image(
-                        #     value=color_img,
-                        #     label=colors_in_category[color]["Name"],
-                        #     interactive=False,
-                        #     show_label=True,
-                        #     show_download_button=False,
-                        #     show_fullscreen_button=False
-                        # )
-                        # button = gr.Button(
-                        #     value='',
-                        #     icon = color_pallete.get_color_path(color),
-                        #     variant="secondary",  # Default, unselected style
-                        #     elem_classes="image-button",  # Add a class for potential custom CSS
-                        #     size="md"
-                        # )
-                        # img.select(fn=lambda : color, inputs=None, outputs=state_selected_color_code)
-                        if color_img:
-                            imgs.append(color_img)
-                gr.Gallery(
+                imgs, color_code_list_per_category = [], []
+                for img_index, color in enumerate(colors_in_category):
+                    color_img = color_pallete.get_color_image(color)
+                    if color_img:
+                        imgs.append(color_img)
+                        color_code_list_per_category.append(color)
+                color_code_list[category] = gr.State(value=color_code_list_per_category)
+
+                gallery_colors = gr.Gallery(
                     value=imgs,
-                    label="Gallery with Original Aspect Ratio",
-                    columns=3,
-                    object_fit="contain",  # This is the key parameter!
-                    height="auto"  # Let the height adjust automatically
+                    scale=0,
+                    container=False,
+                    columns=8,
+                    height=color_pallete.resolution*2,
+                    object_fit="none",  # This is the key parameter!
                 )
+                def on_gallery_color_select(color_code_list_per_category ,user_data, evt: gr.SelectData):
+                    # print("index=",evt.index)
+                    # print("color=",color_code_list_per_category[evt.index])
+                    user_data['selected_color_code'] = color_code_list_per_category[evt.index]
+                    return user_data
+                gallery_colors.select(fn=on_gallery_color_select, inputs = [color_code_list[category],user_data], outputs = [user_data])
 
 
                 # Add a button to apply the selected colors
                 apply_button = gr.Button("Apply Colors", variant="primary")
                 apply_button.click(
-                    fn=apply_colors,  # Placeholder function, replace with actual processing logic
-                    inputs=[state_selected_color_code, user_data, working_images],
+                    fn=apply_colors,
+                    inputs=[user_data, working_images],
                     outputs=working_images
                 )
 
