@@ -155,12 +155,15 @@ def color_modification(source_image, inpaint_mask_bw_image, color_text, resoluti
     result = response.json()
 
     # Save the output image
-    image_data = result['images'][0]
-    image_bytes = base64.b64decode(image_data)
+    if 'images' not in result or len(result['images']) == 0:
+        return None
+    else:
+        image_data = result['images'][0]
+        image_bytes = base64.b64decode(image_data)
 
-    vimage = VersImage.from_binary(image_bytes)
-    # vimage.image.show()
-    return vimage
+        vimage = VersImage.from_binary(image_bytes)
+        # vimage.image.show()
+        return vimage
 
 
 def get_progress():

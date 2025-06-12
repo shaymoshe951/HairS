@@ -2,10 +2,11 @@ import gradio as gr
 import os
 from PIL import Image, ImageOps
 
-from auto1111_if import color_modification
+from auto1111_if import color_modification, get_progress
 from color_pallete import ColorPalette
 from hair_utils import HairMaskGenerator
 from vers_image import VersImage
+from gr_synced_task_with_progress import SyncedTaskWithProgress
 
 
 def resize_image(img, present_resolution = 512):
@@ -121,8 +122,9 @@ def apply_colors(user_data, working_images):
     hair_mask = hair_mask_generator.generate_hair_mask(cur_image)
     print(f"Applying color: {selected_color_name} to the hair mask.")
     colored_image = color_modification(VersImage.from_image(cur_image), VersImage.from_numpy(hair_mask), selected_color_name)
+    if colored_image is None:
+        raise Exception("Operation failed, check that the automatic1111 server is running.")
     working_images.append(colored_image.image)
-
     return working_images
 
 # --- 3. Gradio UI Layout ---
@@ -145,6 +147,9 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
                 gr.Image(interactive=False, value=img, scale=0, show_label=False, show_download_button=False, show_fullscreen_button=False)
                 if ind < len(images) - 1: # One more image at least
                     gr.Image(interactive=False, value=r"./resources/right_arrow.png", scale=0, show_label=False, show_download_button=False, show_fullscreen_button=False)
+
+    progress_bar = gr.Slider(visible=False)
+    gstwp = SyncedTaskWithProgress(progress_bar, get_progress, flag_is_visible_when_non_active=False)
 
     def on_gallery_img_select(evt: gr.SelectData, user_data):
         img_url = evt.value['image']['path']
@@ -195,11 +200,13 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
 
                 # Add a button to apply the selected colors
                 apply_button = gr.Button("Apply Colors", variant="primary")
-                apply_button.click(
-                    fn=apply_colors,
-                    inputs=[user_data, working_images],
-                    outputs=working_images
-                )
+                gstwp.configure_sync_task(apply_button, apply_colors, work_func_kwargs={},
+                                          gradio_blocks_to_interact={'inputs': [user_data, working_images], 'outputs': [working_images]})
+                # apply_button.click(
+                #     fn=apply_colors,
+                #     inputs=[user_data, working_images],
+                #     outputs=working_images
+                # )
 
 
     # --- Screen 3: Summary ---
@@ -243,5 +250,5 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
     )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_port=7861)
 
