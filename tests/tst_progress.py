@@ -45,11 +45,11 @@ class SyncFunctionProgress():
         disable_ui()
 
         # Simulate work with progress updates
-        work_fn()
+        work_fn(**work_func_kwargs)
 
         enable_ui()
 
-    def run_sync(self, start_btn, work_fn, work_func_kwargs=None, cancel_fn=None):
+    def configure_sync_task(self, start_btn, work_fn, work_func_kwargs=None):
 
         # Start button click event
         def start_timer():
@@ -64,7 +64,7 @@ class SyncFunctionProgress():
         run_sync_partial = partial(
             self._run_sync_function_with_progress,
             work_fn=work_fn,
-            work_func_kwargs={},
+            work_func_kwargs=work_func_kwargs,
         )
 
         start_btn.click(
@@ -89,6 +89,12 @@ with gr.Blocks() as demo:
         start_btn = gr.Button("Start Task", variant="primary", scale=1)
         status_text = gr.Textbox(label="Status", value="Ready", interactive=False)
         slider1 = gr.Slider()
+        btn_test = gr.Button("Test show text", variant="primary", scale=1)
+        cancel_btn = gr.Button("Cancel", variant="primary", scale=1)
+        btn_test.click(
+            fn=lambda: "This is a test message",
+            outputs=status_text
+        )
 
 
     def update_progress():
@@ -101,9 +107,9 @@ with gr.Blocks() as demo:
             return gr.update(value=100)
 
 
-    def my_func():
+    def my_func(text_to_show):
         global current_progress
-        print("Starting long task...")
+        print(text_to_show)
         current_progress = 0
         for i in range(100):
             time.sleep(0.05)  # Simulate work
@@ -111,9 +117,14 @@ with gr.Blocks() as demo:
             task_message = f"Processing... {current_progress}%"
         print("Done...")
 
-    sfp = SyncFunctionProgress(slider1, update_progress)
-    sfp.run_sync(start_btn, my_func)
+    def cancel_func():
+        print("Cancelling...")
+        time.sleep(2)
+        print("Cancelled.")
 
+    sfp = SyncFunctionProgress(slider1, update_progress)
+    sfp.configure_sync_task(start_btn, my_func, {'text_to_show': "This is a long task"})
+    cancel_btn.click(cancel_func)
 
 if __name__ == "__main__":
     # Run the main demo with Timer
