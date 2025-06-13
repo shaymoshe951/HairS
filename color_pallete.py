@@ -54,7 +54,7 @@ class ColorPalette:
     def update_color_images(self):
         """Returns a dictionary of color codes to image paths."""
         # Get all images from the colors dictionary
-        folder = r"C:/Users/Lab/Downloads/hair_colors"
+        folder = r"./resources/hair_colors"
         # Get all files in the folder
         files = os.listdir(folder)
         for file in files:
