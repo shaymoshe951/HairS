@@ -1,215 +1,217 @@
 import gradio as gr
 import numpy as np
 from PIL import Image, ImageDraw
-import io
-import base64
+import json
 
 
 def create_drawing_interface():
-    # Sample image - you can replace this with your own image loading logic
-    def load_sample_image():
-        # Create a simple sample image or load your own
-        img = Image.new('RGB', (800, 600), color='lightblue')
+    # Create a sample background image
+    def create_sample_image():
+        img = Image.new('RGB', (512, 512), color='lightblue')
         draw = ImageDraw.Draw(img)
-        draw.rectangle([100, 100, 700, 500], outline='navy', width=3)
-        draw.text((350, 300), "Draw on me!", fill='navy')
+        draw.rectangle([50, 50, 462, 462], outline='navy', width=3)
+        draw.text((200, 250), "Draw on me!", fill='navy', anchor="mm")
         return img
 
-    # HTML and JavaScript for drawing functionality
-    drawing_html = """
-    <div id="drawing-container" style="position: relative; display: inline-block;">
-        <canvas id="drawing-canvas" style="border: 2px solid #333; cursor: crosshair;"></canvas>
-    </div>
+    # Function to handle drawing updates
+    def process_drawing(image_data):
+        if image_data is None:
+            return "No drawing data", []
 
-    <script>
-    (function() {
-        const canvas = document.getElementById('drawing-canvas');
-        const ctx = canvas.getContext('2d');
-        let isDrawing = false;
-        let lastX = 0;
-        let lastY = 0;
-        let drawingData = [];
+        # Extract drawing information
+        if isinstance(image_data, dict):
+            # If it's a dictionary with image and drawing data
+            if 'image' in image_data:
+                img = image_data['image']
+            else:
+                img = image_data
+        else:
+            img = image_data
 
-        // Set canvas size
-        canvas.width = 800;
-        canvas.height = 600;
+        # Convert to numpy array to analyze
+        if hasattr(img, 'convert'):
+            img_array = np.array(img.convert('RGB'))
+        else:
+            img_array = np.array(img)
 
-        // Load background image
-        const img = new Image();
-        img.onload = function() {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
+        # Find drawn pixels (assuming drawing is in red/dark colors)
+        # This is a simple detection - you can make it more sophisticated
+        drawn_pixels = []
+        height, width = img_array.shape[:2]
 
-        // Set drawing style
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        for y in range(height):
+            for x in range(width):
+                pixel = img_array[y, x]
+                # Detect if pixel is significantly different from light blue background
+                if not (pixel[0] > 150 and pixel[1] > 150 and pixel[2] > 200):
+                    drawn_pixels.append((x, y, pixel.tolist()))
 
-        function startDrawing(e) {
-            isDrawing = true;
-            const rect = canvas.getBoundingClientRect();
-            lastX = e.clientX - rect.left;
-            lastY = e.clientY - rect.top;
+        info = f"Drawing detected! Found {len(drawn_pixels)} drawn pixels."
+        return info, drawn_pixels[:100]  # Return first 100 pixels to avoid overwhelming display
 
-            // Start new stroke
-            drawingData.push({
-                type: 'start',
-                x: lastX,
-                y: lastY,
-                timestamp: Date.now()
-            });
+    # Function to reset the canvas
+    def reset_canvas():
+        return create_sample_image()
 
-            ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
-        }
+    # Function to load custom background
+    def load_background(uploaded_image):
+        if uploaded_image is not None:
+            # Resize to standard size for consistency
+            img = uploaded_image.resize((512, 512))
+            return img
+        return create_sample_image()
 
-        function draw(e) {
-            if (!isDrawing) return;
+    # Create the Gradio interface
+    with gr.Blocks(title="Interactive Drawing on Image") as demo:
+        gr.Markdown("# Interactive Drawing Interface")
+        gr.Markdown("Draw on the image below. The interface will track your drawing and show pixel coordinates.")
 
-            const rect = canvas.getBoundingClientRect();
-            const currentX = e.clientX - rect.left;
-            const currentY = e.clientY - rect.top;
+        with gr.Row():
+            with gr.Column(scale=1):
+                # Upload section
+                gr.Markdown("### Upload Background Image (Optional)")
+                upload_input = gr.Image(
+                    type="pil",
+                    label="Upload your image",
+                    height=200
+                )
 
-            // Record mouse movement
-            drawingData.push({
-                type: 'move',
-                x: currentX,
-                y: currentY,
-                timestamp: Date.now()
-            });
+                # Control buttons
+                reset_btn = gr.Button("Reset Canvas", variant="secondary")
 
-            ctx.lineTo(currentX, currentY);
-            ctx.stroke();
+                # Information display
+                gr.Markdown("### Drawing Information")
+                drawing_info = gr.Textbox(
+                    label="Drawing Status",
+                    value="Start drawing to see information",
+                    interactive=False
+                )
 
-            lastX = currentX;
-            lastY = currentY;
-        }
+                # Pixel coordinates display
+                pixel_coords = gr.JSON(
+                    label="Sample Drawn Pixels (x, y, [r,g,b])",
+                    value=[]
+                )
 
-        function stopDrawing() {
-            if (!isDrawing) return;
-            isDrawing = false;
+            with gr.Column(scale=2):
+                # Main drawing area
+                gr.Markdown("### Drawing Canvas")
+                gr.Markdown("Use the drawing tools below to draw on the image. Click and drag to draw.")
 
-            drawingData.push({
-                type: 'end',
-                timestamp: Date.now()
-            });
+                # This is the key component - ImageEditor allows drawing
+                drawing_canvas = gr.ImageEditor(
+                    label="Draw on the image",
+                    type="pil",
+                    brush=gr.Brush(colors=["#ff0000", "#00ff00", "#0000ff", "#000000", "#ffffff"]),
+                    value=create_sample_image(),
+                    height=512,
+                    width=512
+                )
 
-            // Log drawing data (you can process this data as needed)
-            console.log('Drawing data:', drawingData);
+        # Event handlers
+        upload_input.change(
+            fn=load_background,
+            inputs=[upload_input],
+            outputs=[drawing_canvas]
+        )
 
-            // You can send this data to Python backend if needed
-            // For example, using a custom Gradio event
-        }
+        reset_btn.click(
+            fn=reset_canvas,
+            outputs=[drawing_canvas]
+        )
 
-        // Mouse events
-        canvas.addEventListener('mousedown', startDrawing);
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('mouseup', stopDrawing);
-        canvas.addEventListener('mouseout', stopDrawing);
+        # Track drawing changes
+        drawing_canvas.change(
+            fn=process_drawing,
+            inputs=[drawing_canvas],
+            outputs=[drawing_info, pixel_coords]
+        )
 
-        // Touch events for mobile support
-        canvas.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            const touch = e.touches[0];
-            const mouseEvent = new MouseEvent('mousedown', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
-            canvas.dispatchEvent(mouseEvent);
-        });
+        # Instructions
+        gr.Markdown("""
+        ### Instructions:
+        1. **Upload Image**: Optionally upload your own background image
+        2. **Select Tool**: Use the brush tool in the image editor
+        3. **Choose Color**: Pick a color from the palette
+        4. **Draw**: Click and drag on the image to draw
+        5. **Monitor**: Watch the drawing information update as you draw
+        6. **Reset**: Use the reset button to start over
 
-        canvas.addEventListener('touchmove', function(e) {
-            e.preventDefault();
-            const touch = e.touches[0];
-            const mouseEvent = new MouseEvent('mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
-            canvas.dispatchEvent(mouseEvent);
-        });
+        ### Features:
+        - Real-time drawing detection
+        - Pixel coordinate tracking
+        - Multiple brush colors
+        - Custom background images
+        - Drawing analysis and feedback
+        """)
 
-        canvas.addEventListener('touchend', function(e) {
-            e.preventDefault();
-            const mouseEvent = new MouseEvent('mouseup', {});
-            canvas.dispatchEvent(mouseEvent);
-        });
+    return demo
 
-        // Function to load background image
-        window.loadBackgroundImage = function(imageData) {
-            img.src = 'data:image/png;base64,' + imageData;
-        };
 
-        // Function to clear canvas
-        window.clearCanvas = function() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (img.complete) {
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            }
-            drawingData = [];
-        };
+# Alternative approach using Sketchpad (if you prefer a more drawing-focused interface)
+def create_sketchpad_interface():
+    def analyze_sketch(sketch_data):
+        if sketch_data is None:
+            return "No sketch data"
 
-        // Function to get canvas data
-        window.getCanvasData = function() {
-            return canvas.toDataURL();
-        };
+        # Convert sketch to image and analyze
+        if hasattr(sketch_data, 'convert'):
+            img_array = np.array(sketch_data.convert('RGB'))
+            non_white_pixels = np.sum(img_array < 250, axis=2) > 0
+            drawn_pixel_count = np.sum(non_white_pixels)
+            return f"Sketch analyzed: {drawn_pixel_count} pixels drawn"
 
-        // Load initial sample image
-        img.src = 'data:image/svg+xml;base64,' + btoa(`
-            <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
-                <rect width="800" height="600" fill="lightblue"/>
-                <rect x="100" y="100" width="600" height="400" fill="none" stroke="navy" stroke-width="3"/>
-                <text x="350" y="320" font-family="Arial" font-size="24" fill="navy" text-anchor="middle">Draw on me!</text>
-            </svg>
-        `);
+        return "Sketch received"
 
-    })();
-    </script>
-    """
-
-    def clear_drawing():
-        return gr.HTML(drawing_html + "<script>if(window.clearCanvas) window.clearCanvas();</script>")
-
-    def upload_image(image):
-        if image is not None:
-            # Convert PIL image to base64
-            buffered = io.BytesIO()
-            image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-
-            return gr.HTML(
-                drawing_html + f"<script>if(window.loadBackgroundImage) window.loadBackgroundImage('{img_str}');</script>")
-        return gr.HTML(drawing_html)
-
-    # Create Gradio interface
-    with gr.Blocks(title="Image Drawing Interface") as demo:
-        gr.Markdown("# Image Drawing Interface")
-        gr.Markdown("Upload an image and draw on it with your mouse. Mouse movements are tracked during drawing.")
+    with gr.Blocks(title="Sketchpad Drawing Interface") as demo:
+        gr.Markdown("# Sketchpad Drawing Interface")
+        gr.Markdown("Use the sketchpad below to draw. This provides a clean drawing experience.")
 
         with gr.Row():
             with gr.Column():
-                image_input = gr.Image(type="pil", label="Upload Background Image (optional)")
-                clear_btn = gr.Button("Clear Drawing", variant="secondary")
+                # Sketchpad for pure drawing
+                sketchpad = gr.Sketchpad(
+                    label="Draw here",
+                    height=400,
+                    width=400
+                )
+
+                clear_sketch_btn = gr.Button("Clear Sketch")
 
             with gr.Column():
-                drawing_area = gr.HTML(drawing_html, label="Drawing Area")
+                sketch_info = gr.Textbox(
+                    label="Sketch Analysis",
+                    value="Start drawing...",
+                    interactive=False
+                )
 
         # Event handlers
-        image_input.change(
-            fn=upload_image,
-            inputs=[image_input],
-            outputs=[drawing_area]
+        sketchpad.change(
+            fn=analyze_sketch,
+            inputs=[sketchpad],
+            outputs=[sketch_info]
         )
 
-        clear_btn.click(
-            fn=clear_drawing,
-            outputs=[drawing_area]
+        clear_sketch_btn.click(
+            fn=lambda: None,
+            outputs=[sketchpad]
         )
 
     return demo
 
 
-# Create and launch the interface
+# Main execution
 if __name__ == "__main__":
-    demo = create_drawing_interface()
-    demo.launch()
+    # Choose which interface to run
+    print("Choose interface:")
+    print("1. Image Editor (draw on background image)")
+    print("2. Sketchpad (pure drawing)")
+
+    choice = input("Enter 1 or 2 (default 1): ").strip()
+
+    if choice == "2":
+        demo = create_sketchpad_interface()
+    else:
+        demo = create_drawing_interface()
+
+    demo.launch(debug=True)
