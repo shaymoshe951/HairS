@@ -15,39 +15,72 @@ def create_drawing_interface():
 
     # Function to handle drawing updates
     def process_drawing(image_data):
-        if image_data is None:
-            return "No drawing data", []
+        try:
+            if image_data is None:
+                return "No drawing data", []
 
-        # Extract drawing information
-        if isinstance(image_data, dict):
-            # If it's a dictionary with image and drawing data
-            if 'image' in image_data:
-                img = image_data['image']
+            # Handle different types of image data from ImageEditor
+            img = None
+            if isinstance(image_data, dict):
+                # ImageEditor returns a dict with 'background' and 'layers' or 'composite'
+                if 'composite' in image_data:
+                    img = image_data['composite']
+                elif 'background' in image_data:
+                    img = image_data['background']
+                else:
+                    # Try to get the first available image
+                    for key in image_data:
+                        if hasattr(image_data[key], 'convert'):
+                            img = image_data[key]
+                            break
             else:
                 img = image_data
-        else:
-            img = image_data
 
-        # Convert to numpy array to analyze
-        if hasattr(img, 'convert'):
-            img_array = np.array(img.convert('RGB'))
-        else:
-            img_array = np.array(img)
+            if img is None:
+                return "No valid image data found", []
 
-        # Find drawn pixels (assuming drawing is in red/dark colors)
-        # This is a simple detection - you can make it more sophisticated
-        drawn_pixels = []
-        height, width = img_array.shape[:2]
+            # Convert to numpy array to analyze
+            try:
+                if hasattr(img, 'convert'):
+                    img_array = np.array(img.convert('RGB'))
+                else:
+                    img_array = np.array(img)
 
-        for y in range(height):
-            for x in range(width):
-                pixel = img_array[y, x]
-                # Detect if pixel is significantly different from light blue background
-                if not (pixel[0] > 150 and pixel[1] > 150 and pixel[2] > 200):
-                    drawn_pixels.append((x, y, pixel.tolist()))
+                # Check if array has proper dimensions
+                if img_array.size == 0 or len(img_array.shape) < 2:
+                    return "Invalid image dimensions", []
 
-        info = f"Drawing detected! Found {len(drawn_pixels)} drawn pixels."
-        return info, drawn_pixels[:100]  # Return first 100 pixels to avoid overwhelming display
+                height, width = img_array.shape[:2]
+
+            except Exception as e:
+                return f"Error converting image: {str(e)}", []
+
+            # Find drawn pixels (look for non-background colors)
+            drawn_pixels = []
+            background_color = [173, 216, 230]  # Light blue RGB
+            tolerance = 30  # Color tolerance
+
+            # Sample every 5th pixel to avoid performance issues
+            step = 5
+            for y in range(0, height, step):
+                for x in range(0, width, step):
+                    if y < height and x < width:
+                        pixel = img_array[y, x]
+
+                        # Check if pixel is significantly different from background
+                        color_diff = sum(abs(pixel[i] - background_color[i]) for i in range(3))
+                        if color_diff > tolerance:
+                            drawn_pixels.append({
+                                "x": int(x),
+                                "y": int(y),
+                                "color": pixel.tolist()
+                            })
+
+            info = f"Drawing analysis: Found {len(drawn_pixels)} modified pixels (sampled every {step} pixels)"
+            return info, drawn_pixels[:50]  # Return first 50 pixels to avoid overwhelming display
+
+        except Exception as e:
+            return f"Error processing drawing: {str(e)}", []
 
     # Function to reset the canvas
     def reset_canvas():
