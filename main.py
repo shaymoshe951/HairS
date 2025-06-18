@@ -1,13 +1,13 @@
 import gradio as gr
 import os
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 
 from auto1111_if import color_modification, get_progress
 from color_pallete import ColorPalette
 from hair_utils import HairMaskGenerator
 from vers_image import VersImage
 from gr_synced_task_with_progress import SyncedTaskWithProgress
-
+import numpy as np
 
 def resize_image(img, present_resolution = 512):
     old_ratio = 1.2
@@ -87,20 +87,20 @@ def change_screen(screen_index, direction, user_data, working_images):
     prev_btn_update = gr.update(visible=screen_index > 0)
     next_btn_update = gr.update(visible=screen_index < NUM_SCREENS - 1)
 
-    # --- Summary Generation ---
-    # If we are on the last screen, generate the summary.
-    summary_text = ""
-    if screen_index == NUM_SCREENS - 1:
-        name = user_data.get('name', 'N/A')
-        options = ", ".join(user_data.get('options', [])) or "None"
-        summary_text = f"## Installation Summary\n\n" \
-                       f"**Name:** {name}\n\n" \
-                       f"**Selected Options:** {options}\n\n" \
-                       f"Ready to proceed!"
+    # # --- Summary Generation ---
+    # # If we are on the last screen, generate the summary.
+    # summary_text = ""
+    # if screen_index == NUM_SCREENS - 1:
+    #     name = user_data.get('name', 'N/A')
+    #     options = ", ".join(user_data.get('options', [])) or "None"
+    #     summary_text = f"## Installation Summary\n\n" \
+    #                    f"**Name:** {name}\n\n" \
+    #                    f"**Selected Options:** {options}\n\n" \
+    #                    f"Ready to proceed!"
 
     # --- Return all updates ---
     # The order of returned values must match the order of the `outputs` list in the .click() event.
-    return [screen_index, user_data, summary_text] + screen_updates + [prev_btn_update, next_btn_update] + [working_images]
+    return [screen_index, user_data] + screen_updates + [prev_btn_update, next_btn_update] + [working_images]
 
 def apply_colors(user_data, working_images):
     """
@@ -125,6 +125,31 @@ def apply_colors(user_data, working_images):
     if colored_image is None:
         raise Exception("Operation failed, check that the automatic1111 server is running.")
     working_images.append(colored_image.image)
+    return working_images
+
+def apply_edits(user_data, working_images):
+    """
+    Apply the edits made on the drawing canvas to the working images.
+    This function is a placeholder and should be replaced with actual processing logic.
+    """
+    if 'images' in user_data and len(user_data['images']) > 0:
+        cur_image = user_data['images'][-1]  # Get the last selected image
+    else:
+        raise ValueError("No images selected in user_data.")
+
+    if 'drawing_mask_np' not in user_data:
+        print("No drawing mask found, returning original image.")
+        return working_images
+
+    drawing_mask = user_data['drawing_mask_np']
+
+    Image.fromarray((drawing_mask * 255).astype(np.uint8)).save("C:/Users/Lab/Downloads/drawing_mask.png")
+    cur_image.save("C:/Users/Lab/Downloads/background_image.png")
+
+    # # Apply the drawing mask to the current image
+    # edited_image = Image.fromarray(np.array(cur_image) * drawing_mask[:, :, None])
+    #
+    # working_images.append(edited_image)
     return working_images
 
 # --- 3. Gradio UI Layout ---
@@ -202,18 +227,46 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
                 apply_button = gr.Button("Apply Colors", variant="primary")
                 gstwp.configure_sync_task(apply_button, apply_colors, work_func_kwargs={},
                                           gradio_blocks_to_interact={'inputs': [user_data, working_images], 'outputs': [working_images]})
-                # apply_button.click(
-                #     fn=apply_colors,
-                #     inputs=[user_data, working_images],
-                #     outputs=working_images
-                # )
+
 
 
     # --- Screen 3: Summary ---
     with gr.Column(visible=False) as screen3:
-        gr.Markdown("## Step 3: Summary & Finish")
-        gr.Markdown("Review your choices below. Press 'Finish' when ready.")
-        summary_output = gr.Markdown()  # This will be populated by our function
+        gr.Markdown("## Minor edits")
+        gr.Markdown("Draw on the image to extend/reduce hair line.")
+        drawing_canvas = gr.ImageEditor(
+            type="numpy",
+            brush=gr.Brush(colors=["#ff0000", "#00ff00", "#0000ff", "#000000", "#ffffff"], default_size=3,
+                           default_color="#000000"),
+            value=lambda user_data: np.array(user_data['images'][-1]) if 'images' in user_data and len(user_data['images']) > 0 else None,
+            inputs=user_data,
+            sources = None,
+        )
+        apply_edits_button = gr.Button("Apply Edits", variant="primary")
+        gstwp.configure_sync_task(apply_edits_button, apply_edits, work_func_kwargs={},
+                                  gradio_blocks_to_interact={'inputs': [drawing_canvas, user_data, working_images],
+                                                             'outputs': [working_images]})
+
+
+        def process_drawing(image_data, user_data):
+            background_img = image_data['background']
+            comp_img = image_data['composite']
+            if background_img is None or comp_img is None:
+                return user_data
+            xor_img = np.bitwise_xor(background_img,
+                                     comp_img)
+            drawing_mask = (xor_img.sum(axis=2) > 0)
+            if drawing_mask.sum() > 0:
+                user_data['drawing_mask_np'] = drawing_mask
+
+            return user_data
+
+        drawing_canvas.change(
+            fn=process_drawing,
+            inputs=[drawing_canvas, user_data],
+            outputs=[user_data]
+        )
+
 
     # --- Navigation Buttons ---
     with gr.Row():
@@ -232,14 +285,14 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
     next_button.click(
         fn=change_screen,
         inputs=[screen_index, gr.State("next"), user_data] + all_inputs,
-        outputs=[screen_index, user_data, summary_output] + all_screens + [prev_button, next_button] + [working_images]
+        outputs=[screen_index, user_data] + all_screens + [prev_button, next_button] + [working_images]
     )
 
     # When the "Previous" button is clicked
     prev_button.click(
         fn=change_screen,
         inputs=[screen_index, gr.State("prev"), user_data] + all_inputs,
-        outputs=[screen_index, user_data, summary_output] + all_screens + [prev_button, next_button]+ [working_images]
+        outputs=[screen_index, user_data] + all_screens + [prev_button, next_button]+ [working_images]
     )
 
     # Reset the state when the app loads/reloads
