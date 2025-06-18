@@ -2,7 +2,7 @@ import gradio as gr
 import os
 from PIL import Image, ImageOps, ImageDraw
 
-from auto1111_if import color_modification, get_progress
+from auto1111_if import color_modification, get_progress, adding_hair_modification
 from color_pallete import ColorPalette
 from hair_utils import HairMaskGenerator
 from vers_image import VersImage
@@ -127,7 +127,7 @@ def apply_colors(user_data, working_images):
     working_images.append(colored_image.image)
     return working_images
 
-def apply_edits(user_data, working_images):
+def apply_edits(drawing_canvas, user_data, working_images):
     """
     Apply the edits made on the drawing canvas to the working images.
     This function is a placeholder and should be replaced with actual processing logic.
@@ -137,19 +137,32 @@ def apply_edits(user_data, working_images):
     else:
         raise ValueError("No images selected in user_data.")
 
-    if 'drawing_mask_np' not in user_data:
+    if drawing_canvas is None or 'background' not in drawing_canvas or 'composite' not in drawing_canvas:
+        return working_images
+    background_img = drawing_canvas['background']
+    comp_img = drawing_canvas['composite']
+    if background_img is None or comp_img is None:
+        return working_images
+    xor_img = np.bitwise_xor(background_img,
+                             comp_img)
+    drawing_mask = (xor_img.sum(axis=2) > 0)
+    if drawing_mask.sum() == 0:
         print("No drawing mask found, returning original image.")
         return working_images
 
-    drawing_mask = user_data['drawing_mask_np']
+    hair_mask = hair_mask_generator.generate_hair_mask(cur_image)
+    hair = np.array(cur_image) * (hair_mask[:,:, None] > 0)  # Apply hair mask to the current image
 
-    Image.fromarray((drawing_mask * 255).astype(np.uint8)).save("C:/Users/Lab/Downloads/drawing_mask.png")
-    cur_image.save("C:/Users/Lab/Downloads/background_image.png")
+    # # Debug
+    # Image.fromarray((drawing_mask * 255).astype(np.uint8)).save("C:/Users/Lab/Downloads/drawing_mask.png")
+    # Image.fromarray(hair.astype(np.uint8)).save("C:/Users/Lab/Downloads/hair_only.png")
+    # cur_image.save("C:/Users/Lab/Downloads/background_image.png")
 
     # # Apply the drawing mask to the current image
     # edited_image = Image.fromarray(np.array(cur_image) * drawing_mask[:, :, None])
     #
-    # working_images.append(edited_image)
+    modified_image = adding_hair_modification(VersImage.from_image(cur_image), VersImage.from_image(Image.fromarray(hair.astype(np.uint8))), VersImage.from_image(Image.fromarray((drawing_mask * 255).astype(np.uint8))))
+    working_images.append(modified_image.image)
     return working_images
 
 # --- 3. Gradio UI Layout ---
@@ -236,11 +249,13 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
         gr.Markdown("Draw on the image to extend/reduce hair line.")
         drawing_canvas = gr.ImageEditor(
             type="numpy",
+            crop_size="1:1",
             brush=gr.Brush(colors=["#ff0000", "#00ff00", "#0000ff", "#000000", "#ffffff"], default_size=3,
                            default_color="#000000"),
             value=lambda user_data: np.array(user_data['images'][-1]) if 'images' in user_data and len(user_data['images']) > 0 else None,
             inputs=user_data,
             sources = None,
+            eraser = None,
         )
         apply_edits_button = gr.Button("Apply Edits", variant="primary")
         gstwp.configure_sync_task(apply_edits_button, apply_edits, work_func_kwargs={},
@@ -248,24 +263,26 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
                                                              'outputs': [working_images]})
 
 
-        def process_drawing(image_data, user_data):
-            background_img = image_data['background']
-            comp_img = image_data['composite']
-            if background_img is None or comp_img is None:
-                return user_data
-            xor_img = np.bitwise_xor(background_img,
-                                     comp_img)
-            drawing_mask = (xor_img.sum(axis=2) > 0)
-            if drawing_mask.sum() > 0:
-                user_data['drawing_mask_np'] = drawing_mask
+        # def process_drawing(image_data, user_data):
+        #     if image_data is None or 'background' not in image_data or 'composite' not in image_data:
+        #         return user_data
+        #     background_img = image_data['background']
+        #     comp_img = image_data['composite']
+        #     if background_img is None or comp_img is None:
+        #         return user_data
+        #     xor_img = np.bitwise_xor(background_img,
+        #                              comp_img)
+        #     drawing_mask = (xor_img.sum(axis=2) > 0)
+        #     if drawing_mask.sum() > 0:
+        #         user_data['drawing_mask_np'] = drawing_mask
+        #
+        #     return user_data
 
-            return user_data
-
-        drawing_canvas.change(
-            fn=process_drawing,
-            inputs=[drawing_canvas, user_data],
-            outputs=[user_data]
-        )
+        # drawing_canvas.change(
+        #     fn=process_drawing,
+        #     inputs=[drawing_canvas, user_data],
+        #     outputs=[user_data]
+        # )
 
 
     # --- Navigation Buttons ---
