@@ -118,8 +118,11 @@ def adding_hair_modification(source_image, reference_hair_image, inpaint_mask_bw
         "negative_prompt": "No unwanted artifacts, maintain original style.",
         # "prompt": "cinematic photo. 35mm photograph, film, bokeh, professional, highly detailed",
         # "negative_prompt": "drawing, painting, crayon, sketch, graphite, impressionist, noisy, blurry, soft, deformed",
+        "override_settings": {
+            "sd_model_checkpoint": "dreamshaper_8 [879db523c3]"
+        },
         "steps": 30,
-        "sampler_name": "DPM++ 2M Karras",
+        "sampler_name": "DPM++ 2M",
         "cfg_scale": 5,
         "width": resolution[0],
         "height": resolution[1],
@@ -127,9 +130,9 @@ def adding_hair_modification(source_image, reference_hair_image, inpaint_mask_bw
         "denoising_strength": 0.7,
         "mask_blur": 4,
         "inpainting_fill": 1,
-        "inpaint_full_res": True,
-        "inpaint_full_res_padding": 4,
-        "inpainting_mask_invert": 0,
+        # "inpaint_full_res": True,
+        # "inpaint_full_res_padding": 4,
+        # "inpainting_mask_invert": 0,
         "alwayson_scripts": {
             "controlnet": {
                 "args": [

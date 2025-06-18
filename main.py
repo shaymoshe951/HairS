@@ -63,9 +63,8 @@ def change_screen(screen_index, direction, user_data, working_images):
     # Save the input from the *previous* screen before changing the index.
     if direction == "next":
         if screen_index == 0:
-            if 'images' in user_data:
-                working_images = user_data['images']
-
+            if 'selected_image' in user_data:
+                working_images = [user_data['selected_image']]
 
         # Move to the next screen
         screen_index += 1
@@ -74,6 +73,9 @@ def change_screen(screen_index, direction, user_data, working_images):
         screen_index -= 1
 
     # --- UI Updates ---
+    drawing_canvas_new_image = None
+    if screen_index == 2:  # Minor edits screen
+        drawing_canvas_new_image = working_images[-1] if len(working_images) > 0 else None
     # Create a list of visibility updates for all screens.
     # Start by hiding all of them.
     screen_updates = [gr.update(visible=False)] * NUM_SCREENS
@@ -100,7 +102,7 @@ def change_screen(screen_index, direction, user_data, working_images):
 
     # --- Return all updates ---
     # The order of returned values must match the order of the `outputs` list in the .click() event.
-    return [screen_index, user_data] + screen_updates + [prev_btn_update, next_btn_update] + [working_images]
+    return [screen_index, user_data] + screen_updates + [prev_btn_update, next_btn_update] + [working_images,drawing_canvas_new_image]
 
 def apply_colors(user_data, working_images):
     """
@@ -110,7 +112,7 @@ def apply_colors(user_data, working_images):
     # For now, just return the working images as is.
     # In a real application, you would apply the selected colors to the images here.
     if 'images' in user_data:
-        cur_image = user_data['images'][-1]  # Get the last selected image
+        cur_image = working_images[-1]  # Get the last selected image
     else:
         raise ValueError("No images selected in user_data.")
     if 'selected_color_code' in user_data:
@@ -132,36 +134,48 @@ def apply_edits(drawing_canvas, user_data, working_images):
     Apply the edits made on the drawing canvas to the working images.
     This function is a placeholder and should be replaced with actual processing logic.
     """
-    if 'images' in user_data and len(user_data['images']) > 0:
-        cur_image = user_data['images'][-1]  # Get the last selected image
+    if len(working_images) > 0:
+        cur_image = working_images[-1]  # Get the last selected image
     else:
         raise ValueError("No images selected in user_data.")
 
-    if drawing_canvas is None or 'background' not in drawing_canvas or 'composite' not in drawing_canvas:
-        return working_images
-    background_img = drawing_canvas['background']
-    comp_img = drawing_canvas['composite']
-    if background_img is None or comp_img is None:
-        return working_images
-    xor_img = np.bitwise_xor(background_img,
-                             comp_img)
-    drawing_mask = (xor_img.sum(axis=2) > 0)
-    if drawing_mask.sum() == 0:
-        print("No drawing mask found, returning original image.")
-        return working_images
+    flag_debug_drawing_load_images = False  # Set to True to debug drawing mask generation
+    flag_debug_drawing_save_images = False  # Set to True to save debug images
 
-    hair_mask = hair_mask_generator.generate_hair_mask(cur_image)
-    hair = np.array(cur_image) * (hair_mask[:,:, None] > 0)  # Apply hair mask to the current image
+    if flag_debug_drawing_load_images:
+        drawing_mask_img = Image.open("C:/Users/Lab/Downloads/drawing_mask.png")
+        hair_img = Image.open("C:/Users/Lab/Downloads/hair_only.png")
+        # cur_img = Image.open("C:/Users/Lab/Downloads/background_image.png")
+    else:
+        if drawing_canvas is None or 'background' not in drawing_canvas or 'composite' not in drawing_canvas:
+            return working_images
+        background_img = drawing_canvas['background']
+        comp_img = drawing_canvas['composite']
+        if background_img is None or comp_img is None:
+            return working_images
+        xor_img = np.bitwise_xor(background_img,
+                                 comp_img)
+        drawing_mask = (xor_img.sum(axis=2) > 0)
+        if drawing_mask.sum() == 0:
+            print("No drawing mask found, returning original image.")
+            return working_images
 
-    # # Debug
-    # Image.fromarray((drawing_mask * 255).astype(np.uint8)).save("C:/Users/Lab/Downloads/drawing_mask.png")
-    # Image.fromarray(hair.astype(np.uint8)).save("C:/Users/Lab/Downloads/hair_only.png")
-    # cur_image.save("C:/Users/Lab/Downloads/background_image.png")
+        hair_mask = hair_mask_generator.generate_hair_mask(cur_image)
+        hair = np.array(cur_image) * (hair_mask[:,:, None] > 0)  # Apply hair mask to the current image
+        hair_img = Image.fromarray(hair.astype(np.uint8))
+        drawing_mask_img = Image.fromarray((drawing_mask * 255).astype(np.uint8))
+
+        if flag_debug_drawing_save_images: # Debug
+            drawing_mask_img.save("C:/Users/Lab/Downloads/drawing_mask.png")
+            hair_img.save("C:/Users/Lab/Downloads/hair_only.png")
+            cur_image.save("C:/Users/Lab/Downloads/background_image.png")
+
 
     # # Apply the drawing mask to the current image
     # edited_image = Image.fromarray(np.array(cur_image) * drawing_mask[:, :, None])
     #
-    modified_image = adding_hair_modification(VersImage.from_image(cur_image), VersImage.from_image(Image.fromarray(hair.astype(np.uint8))), VersImage.from_image(Image.fromarray((drawing_mask * 255).astype(np.uint8))))
+    modified_image = adding_hair_modification(VersImage.from_image(cur_image), VersImage.from_image(hair_img),
+                                              VersImage.from_image(drawing_mask_img))
     working_images.append(modified_image.image)
     return working_images
 
@@ -192,7 +206,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
     def on_gallery_img_select(evt: gr.SelectData, user_data):
         img_url = evt.value['image']['path']
         img = Image.open(img_url)
-        user_data['images'] = [img]
+        user_data['selected_image'] = img
 
         return user_data
 
@@ -243,7 +257,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
 
 
 
-    # --- Screen 3: Summary ---
+    # --- Screen 3: Minor edits ---
     with gr.Column(visible=False) as screen3:
         gr.Markdown("## Minor edits")
         gr.Markdown("Draw on the image to extend/reduce hair line.")
@@ -252,8 +266,9 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
             crop_size="1:1",
             brush=gr.Brush(colors=["#ff0000", "#00ff00", "#0000ff", "#000000", "#ffffff"], default_size=3,
                            default_color="#000000"),
-            value=lambda user_data: np.array(user_data['images'][-1]) if 'images' in user_data and len(user_data['images']) > 0 else None,
-            inputs=user_data,
+            # value=lambda images:
+            # np.array(images[-1]) if len(images) > 0 else None,
+            # inputs=working_images,
             sources = None,
             eraser = None,
         )
@@ -261,28 +276,6 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
         gstwp.configure_sync_task(apply_edits_button, apply_edits, work_func_kwargs={},
                                   gradio_blocks_to_interact={'inputs': [drawing_canvas, user_data, working_images],
                                                              'outputs': [working_images]})
-
-
-        # def process_drawing(image_data, user_data):
-        #     if image_data is None or 'background' not in image_data or 'composite' not in image_data:
-        #         return user_data
-        #     background_img = image_data['background']
-        #     comp_img = image_data['composite']
-        #     if background_img is None or comp_img is None:
-        #         return user_data
-        #     xor_img = np.bitwise_xor(background_img,
-        #                              comp_img)
-        #     drawing_mask = (xor_img.sum(axis=2) > 0)
-        #     if drawing_mask.sum() > 0:
-        #         user_data['drawing_mask_np'] = drawing_mask
-        #
-        #     return user_data
-
-        # drawing_canvas.change(
-        #     fn=process_drawing,
-        #     inputs=[drawing_canvas, user_data],
-        #     outputs=[user_data]
-        # )
 
 
     # --- Navigation Buttons ---
@@ -302,14 +295,14 @@ with gr.Blocks(theme=gr.themes.Soft(), css="footer {display: none !important}") 
     next_button.click(
         fn=change_screen,
         inputs=[screen_index, gr.State("next"), user_data] + all_inputs,
-        outputs=[screen_index, user_data] + all_screens + [prev_button, next_button] + [working_images]
+        outputs=[screen_index, user_data] + all_screens + [prev_button, next_button] + [working_images, drawing_canvas]
     )
 
     # When the "Previous" button is clicked
     prev_button.click(
         fn=change_screen,
         inputs=[screen_index, gr.State("prev"), user_data] + all_inputs,
-        outputs=[screen_index, user_data] + all_screens + [prev_button, next_button]+ [working_images]
+        outputs=[screen_index, user_data] + all_screens + [prev_button, next_button]+ [working_images, drawing_canvas]
     )
 
     # Reset the state when the app loads/reloads
